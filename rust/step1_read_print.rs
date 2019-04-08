@@ -14,7 +14,6 @@ enum Error {
     ParseError(String),
 }
 
-
 struct Parser {
     buffer: String,
     ast: Ast,
