@@ -1,10 +1,5 @@
 use std::mem;
-
-#[derive(Debug, PartialEq)]
-enum Error {
-    TransitionError(String),
-    TokenTerminationError(String),
-}
+use super::Error;
 
 macro_rules! trans_err {
     ($c:expr, $buff:expr, $state:expr) => {
@@ -18,7 +13,8 @@ macro_rules! trans_err {
 macro_rules! match_terminated {
    ($tokenizer:expr, $obj:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
        match $obj {
-           ' ' => Ok($tokenizer.end_token()?),
+           x if x.is_whitespace() => Ok($tokenizer.end_token()?),
+           ',' => Ok($tokenizer.end_token()?),
            '(' => Ok($tokenizer.end_token_push(Token::LeftParen)?),
            ')' => Ok($tokenizer.end_token_push(Token::RightParen)?),
            $($matcher $(if $pred)* => $result),*
@@ -40,30 +36,25 @@ enum State {
 }
 
 #[derive(Debug)]
-struct Tokenizer {
+pub struct Lexer {
     state: State,
     tokens: Vec<Token>,
     buffer: String,
 }
 
 #[derive(Debug, PartialEq)]
-enum TokenNum {
-    Int(i32),
-    Float(f32),
-}
-
-#[derive(Debug, PartialEq)]
-enum Token {
+pub enum Token {
     LeftParen,
     RightParen,
     String(String),
-    Num(TokenNum),
+    Int(i32),
+    Float(f32),
     Symbol(String),
 }
 
-impl Tokenizer {
-    fn new() -> Self {
-        Tokenizer {
+impl Lexer {
+    pub fn new() -> Self {
+        Lexer {
             state: State::Init,
             tokens: vec![],
             buffer: "".to_owned(),
@@ -88,8 +79,8 @@ impl Tokenizer {
         let b = mem::replace(&mut self.buffer, "".to_owned());
         let token = match &self.state {
             State::Minus => Ok(Token::Symbol(b)),
-            State::Num => Ok(Token::Num(TokenNum::Int(b.parse().expect(EXPECT_NUM)))),
-            State::Float => Ok(Token::Num(TokenNum::Float(b.parse().expect(EXPECT_NUM)))),
+            State::Num => Ok(Token::Int(b.parse().expect(EXPECT_NUM))),
+            State::Float => Ok(Token::Float(b.parse().expect(EXPECT_NUM))),
             State::StringClose => Ok(Token::String(b)),
             State::Symbol => Ok(Token::Symbol(b)),
             _ => Err(Error::TokenTerminationError(format!(
@@ -205,7 +196,7 @@ impl Tokenizer {
         }
     }
 
-    fn tokenize(mut self, input: &str) -> Result<Vec<Token>, Error> {
+    pub fn tokenize(mut self, input: &str) -> Result<Vec<Token>, Error> {
         for c in input.chars() {
             self.process_char(c)?;
         }
@@ -220,18 +211,18 @@ mod test {
 
     #[test]
     fn tokenize_int() {
-        let t = Tokenizer::new();
+        let t = Lexer::new();
         let tokens = t.tokenize("1337 420 -322").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Num(TokenNum::Int(1337)),
-                Token::Num(TokenNum::Int(420)),
-                Token::Num(TokenNum::Int(-322))
+                Token::Int(1337),
+                Token::Int(420),
+                Token::Int(-322)
             ]
         );
 
-        let t_bad = Tokenizer::new();
+        let t_bad = Lexer::new();
         let err = t_bad.tokenize("1337s").err().unwrap();
         assert_eq!(
             err,
@@ -241,25 +232,25 @@ mod test {
 
     #[test]
     fn tokenize_float() {
-        let t = Tokenizer::new();
+        let t = Lexer::new();
         let tokens = t.tokenize("1337.44 420.33 -322.0").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Num(TokenNum::Float(1337.44)),
-                Token::Num(TokenNum::Float(420.33)),
-                Token::Num(TokenNum::Float(-322.0))
+                Token::Float(1337.44),
+                Token::Float(420.33),
+                Token::Float(-322.0)
             ]
         );
 
-        let t_bad = Tokenizer::new();
+        let t_bad = Lexer::new();
         let err = t_bad.tokenize("1337.").err().unwrap();
         assert_eq!(
             err,
             Error::TokenTerminationError("Non terminating state: Dot".to_owned())
         );
 
-        let t_bad2 = Tokenizer::new();
+        let t_bad2 = Lexer::new();
         let err = t_bad2.tokenize("1337.a").err().unwrap();
         assert_eq!(
             err,
@@ -269,7 +260,7 @@ mod test {
 
     #[test]
     fn tokenize_symbol() {
-        let t = Tokenizer::new();
+        let t = Lexer::new();
         let tokens = t.tokenize("true false - ----").unwrap();
         assert_eq!(
             tokens,
@@ -281,7 +272,7 @@ mod test {
             ]
         );
 
-        let t_bad = Tokenizer::new();
+        let t_bad = Lexer::new();
         let err = t_bad.tokenize("lol\"kek").err().unwrap();
         assert_eq!(
             err,
@@ -293,7 +284,7 @@ mod test {
 
     #[test]
     fn tokenize_string() {
-        let t = Tokenizer::new();
+        let t = Lexer::new();
         let tokens = t
             .tokenize("\"\" \" \" \"yolo swag()() hihihe \\\" win\" \"nailed it\"")
             .unwrap();
@@ -307,7 +298,7 @@ mod test {
             ]
         );
 
-        let t_bad = Tokenizer::new();
+        let t_bad = Lexer::new();
         let err = t_bad.tokenize("\"lol\"kek\"").err().unwrap();
         assert_eq!(
             err,
@@ -319,7 +310,7 @@ mod test {
 
     #[test]
     fn tokenize_sexp() {
-        let t = Tokenizer::new();
+        let t = Lexer::new();
         let tokens = t
             .tokenize("(println \"hey lisp\" (* (+ 1 2.02 3) 420))")
             .unwrap();
@@ -334,11 +325,11 @@ mod test {
                 Token::Symbol("*".to_owned()),
                 Token::LeftParen,
                 Token::Symbol("+".to_owned()),
-                Token::Num(TokenNum::Int(1)),
-                Token::Num(TokenNum::Float(2.02)),
-                Token::Num(TokenNum::Int(3)),
+                Token::Int(1),
+                Token::Float(2.02),
+                Token::Int(3),
                 Token::RightParen,
-                Token::Num(TokenNum::Int(420)),
+                Token::Int(420),
                 Token::RightParen,
                 Token::RightParen,
             ]
