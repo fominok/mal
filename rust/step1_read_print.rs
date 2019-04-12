@@ -3,8 +3,8 @@ mod lexer;
 mod parser;
 mod reader;
 
-use rustyline::error::ReadlineError;
 use crate::parser::Ast;
+use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 #[derive(Debug, PartialEq)]

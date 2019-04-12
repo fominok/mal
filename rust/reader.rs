@@ -1,6 +1,6 @@
-use crate::parser::{parse, Ast};
-use crate::lexer::Lexer;
 use super::Error;
+use crate::lexer::Lexer;
+use crate::parser::{parse, Ast};
 
 pub(crate) fn read(s: String) -> Result<Ast, Error> {
     let lex = Lexer::new();

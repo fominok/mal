@@ -14,6 +14,7 @@ macro_rules! match_terminated {
    ($tokenizer:expr, $obj:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
        match $obj {
            x if is_whitespace(x) => Ok($tokenizer.end_token()?),
+           ';' => Ok($tokenizer.end_token_trans(State::Comment)?),
            ',' => Ok($tokenizer.end_token()?),
            '(' => Ok($tokenizer.end_token_push(Token::LeftParen)?),
            ')' => Ok($tokenizer.end_token_push(Token::RightParen)?),
@@ -37,6 +38,7 @@ enum State {
     Escape,
     StringClose,
     Symbol,
+    Comment,
 }
 
 #[derive(Debug)]
@@ -86,8 +88,8 @@ impl Lexer {
         self.buffer.push(c);
     }
 
-    fn end_token(&mut self) -> Result<(), Error> {
-        static EXPECT_NUM: &'static str = "Programming error in tokenizer";
+    fn end_token_trans(&mut self, new_state: State) -> Result<(), Error> {
+        static EXPECT_NUM: &'static str = "Programming error in lexer: Parse num";
         let b = mem::replace(&mut self.buffer, "".to_owned());
         let token = match &self.state {
             State::Minus => Ok(Token::Symbol(b)),
@@ -101,8 +103,12 @@ impl Lexer {
             ))),
         }?;
         self.push_token(token);
-        self.state = State::Init;
+        self.state = new_state;
         Ok(())
+    }
+
+    fn end_token(&mut self) -> Result<(), Error> {
+        self.end_token_trans(State::Init)
     }
 
     fn try_end_token(&mut self) -> Result<(), Error> {
@@ -126,6 +132,7 @@ impl Lexer {
     fn trans_init(&mut self, c: char) -> Result<(), Error> {
         match c {
             c if is_whitespace(c) => Ok(()),
+            ';' => Ok(self.trans_ignore(State::Comment)),
             '(' => Ok(self.push_token(Token::LeftParen)),
             ')' => Ok(self.push_token(Token::RightParen)),
             '[' => Ok(self.push_token(Token::LeftBracket)),
@@ -198,9 +205,17 @@ impl Lexer {
         }
     }
 
+    fn trans_comment(&mut self, c: char) -> Result<(), Error> {
+        if c == '\n' {
+            self.trans_ignore(State::Init);
+        }
+        Ok(())
+    }
+
     fn process_char(&mut self, c: char) -> Result<(), Error> {
         match self.state {
             State::Init => self.trans_init(c),
+            State::Comment => self.trans_comment(c),
             State::Minus => self.trans_minus(c),
             State::Num => self.trans_num(c),
             State::Dot => self.trans_dot(c),
@@ -349,6 +364,25 @@ mod test {
                 Token::Int(420),
                 Token::RightParen,
                 Token::RightParen,
+            ]
+        );
+    }
+
+    #[test]
+    fn comments() {
+        let t = Lexer::new();
+        let tokens = t
+            .tokenize("(+ 1 2 3 ;; Comment here (println yolo swag)")
+            .unwrap();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LeftParen,
+                Token::Symbol("+".to_owned()),
+                Token::Int(1),
+                Token::Int(2),
+                Token::Int(3),
             ]
         );
     }
