@@ -1,5 +1,5 @@
-use std::mem;
 use super::Error;
+use std::mem;
 
 macro_rules! trans_err {
     ($c:expr, $buff:expr, $state:expr) => {
@@ -13,10 +13,14 @@ macro_rules! trans_err {
 macro_rules! match_terminated {
    ($tokenizer:expr, $obj:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
        match $obj {
-           x if x.is_whitespace() => Ok($tokenizer.end_token()?),
+           x if is_whitespace(x) => Ok($tokenizer.end_token()?),
            ',' => Ok($tokenizer.end_token()?),
            '(' => Ok($tokenizer.end_token_push(Token::LeftParen)?),
            ')' => Ok($tokenizer.end_token_push(Token::RightParen)?),
+           '[' => Ok($tokenizer.end_token_push(Token::LeftBracket)?),
+           ']' => Ok($tokenizer.end_token_push(Token::RightBracket)?),
+           '{' => Ok($tokenizer.end_token_push(Token::LeftBrace)?),
+           '}' => Ok($tokenizer.end_token_push(Token::RightBrace)?),
            $($matcher $(if $pred)* => $result),*
        }
    }
@@ -46,10 +50,18 @@ pub struct Lexer {
 pub enum Token {
     LeftParen,
     RightParen,
+    LeftBracket,
+    RightBracket,
+    LeftBrace,
+    RightBrace,
     String(String),
     Int(i32),
     Float(f32),
     Symbol(String),
+}
+
+fn is_whitespace(c: char) -> bool {
+    c.is_whitespace() || c == ','
 }
 
 impl Lexer {
@@ -113,9 +125,13 @@ impl Lexer {
 
     fn trans_init(&mut self, c: char) -> Result<(), Error> {
         match c {
-            ' ' => Ok(()),
+            c if is_whitespace(c) => Ok(()),
             '(' => Ok(self.push_token(Token::LeftParen)),
             ')' => Ok(self.push_token(Token::RightParen)),
+            '[' => Ok(self.push_token(Token::LeftBracket)),
+            ']' => Ok(self.push_token(Token::RightBracket)),
+            '{' => Ok(self.push_token(Token::LeftBrace)),
+            '}' => Ok(self.push_token(Token::RightBrace)),
             '-' => Ok(self.trans(c, State::Minus)),
             '"' => Ok(self.trans_ignore(State::StringStart)),
             c if c.is_digit(10) => Ok(self.trans(c, State::Num)),
@@ -215,11 +231,7 @@ mod test {
         let tokens = t.tokenize("1337 420 -322").unwrap();
         assert_eq!(
             tokens,
-            vec![
-                Token::Int(1337),
-                Token::Int(420),
-                Token::Int(-322)
-            ]
+            vec![Token::Int(1337), Token::Int(420), Token::Int(-322)]
         );
 
         let t_bad = Lexer::new();
@@ -233,7 +245,7 @@ mod test {
     #[test]
     fn tokenize_float() {
         let t = Lexer::new();
-        let tokens = t.tokenize("1337.44 420.33 -322.0").unwrap();
+        let tokens = t.tokenize("1337.44 420.33 -322.0  ,   ").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -312,7 +324,7 @@ mod test {
     fn tokenize_sexp() {
         let t = Lexer::new();
         let tokens = t
-            .tokenize("(println \"hey lisp\" (* (+ 1 2.02 3) 420))")
+            .tokenize("(println [1 2 3] \"hey lisp\" (* (+ 1 2.02 3) 420))")
             .unwrap();
 
         assert_eq!(
@@ -320,6 +332,11 @@ mod test {
             vec![
                 Token::LeftParen,
                 Token::Symbol("println".to_owned()),
+                Token::LeftBracket,
+                Token::Int(1),
+                Token::Int(2),
+                Token::Int(3),
+                Token::RightBracket,
                 Token::String("hey lisp".to_owned()),
                 Token::LeftParen,
                 Token::Symbol("*".to_owned()),
