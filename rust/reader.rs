@@ -3,15 +3,17 @@ use crate::lexer::Lexer;
 use crate::parser::{parse, Ast, AstLeaf, AstList, ListType};
 use std::mem;
 
-trait ReaderMacro {
+pub(crate) trait ReaderMacro {
     fn process_ast(ast: &mut Vec<Ast>);
 }
 
-struct WithMeta;
+pub(crate) struct WithMeta;
 
 impl ReaderMacro for WithMeta {
     fn process_ast(ast: &mut Vec<Ast>) {
-        for i in 0..ast.len() - 2 {
+        let mut i = 0;
+
+        while ast.len() > 2 && i < ast.len() - 2 {
             let meta_symbol = &ast[i];
             let meta_info = &ast[i + 1];
 
@@ -23,7 +25,10 @@ impl ReaderMacro for WithMeta {
                         list: _,
                     }),
                 ) if meta_char == "^" => (),
-                _ => continue,
+                _ => {
+                    i += 1;
+                    continue;
+                }
             }
 
             let replace = Ast::List(AstList {
@@ -38,7 +43,7 @@ impl ReaderMacro for WithMeta {
             mem::replace(&mut ast[i], replace);
             ast.remove(i + 1);
             ast.remove(i + 1);
-            break;
+            i = 0;
         }
     }
 }
@@ -66,7 +71,7 @@ mod test {
     fn macro_with_meta() {
         let lex = Lexer::new();
         let tokens = lex
-            .tokenize("^{yolo swag} (+ 1 3 ^{300 bucks} [420 322] 3 7)")
+            .tokenize("^{yolo swag} (+ 1 3 ^{300 bucks} [420  ^{top kek} (+ 1 322)] 3 7) ")
             .unwrap();
         let mut ast_top: Vec<Ast> = parse(tokens).unwrap();
         WithMeta::process_ast(&mut ast_top);
@@ -80,7 +85,21 @@ mod test {
                     Ast::int(3),
                     Ast::parens(vec![
                         Ast::symbol("with-meta".to_owned()),
-                        Ast::brackets(vec![Ast::int(420), Ast::int(322),]),
+                        Ast::brackets(vec![
+                            Ast::int(420),
+                            Ast::parens(vec![
+                                Ast::symbol("with-meta".to_owned()),
+                                Ast::parens(vec![
+                                    Ast::symbol("+".to_owned()),
+                                    Ast::int(1),
+                                    Ast::int(322)
+                                ]),
+                                Ast::braces(vec![
+                                    Ast::symbol("top".to_owned()),
+                                    Ast::symbol("kek".to_owned())
+                                ]),
+                            ]),
+                        ]),
                         Ast::braces(vec![Ast::int(300), Ast::symbol("bucks".to_owned())]),
                     ]),
                     Ast::int(3),
