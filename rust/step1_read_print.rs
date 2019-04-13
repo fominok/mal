@@ -13,6 +13,7 @@ pub enum Error {
     TokenTerminationError(String),
     Unbalanced,
     EOF,
+    ReaderMacroError,
 }
 
 fn read(s: String) -> Result<Ast, Error> {

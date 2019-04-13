@@ -2,7 +2,7 @@ use super::Error;
 use crate::lexer::Token;
 use std::mem;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum AstLeaf {
     Symbol(String),
     Int(i32),
@@ -17,30 +17,54 @@ pub(crate) enum ListType {
     Braces,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct AstList {
     pub(crate) list_type: ListType,
     pub(crate) list: Vec<Ast>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Ast {
     List(AstList),
     Leaf(AstLeaf),
 }
 
+impl Default for Ast {
+    fn default() -> Self {
+        Ast::Leaf(AstLeaf::Symbol("".to_owned()))
+    }
+}
+
 impl Ast {
-    fn symbol(s: String) -> Self {
+    pub(crate) fn symbol(s: String) -> Self {
         Ast::Leaf(AstLeaf::Symbol(s))
     }
-    fn int(i: i32) -> Self {
+    pub(crate) fn int(i: i32) -> Self {
         Ast::Leaf(AstLeaf::Int(i))
     }
-    fn float(f: f32) -> Self {
+    pub(crate) fn float(f: f32) -> Self {
         Ast::Leaf(AstLeaf::Float(f))
     }
-    fn string(s: String) -> Self {
+    pub(crate) fn string(s: String) -> Self {
         Ast::Leaf(AstLeaf::String(s))
+    }
+    pub(crate) fn parens(sib: Vec<Self>) -> Self {
+        Ast::List(AstList {
+            list_type: ListType::Parens,
+            list: sib,
+        })
+    }
+    pub(crate) fn braces(sib: Vec<Self>) -> Self {
+        Ast::List(AstList {
+            list_type: ListType::Braces,
+            list: sib,
+        })
+    }
+    pub(crate) fn brackets(sib: Vec<Self>) -> Self {
+        Ast::List(AstList {
+            list_type: ListType::Brackets,
+            list: sib,
+        })
     }
 }
 
@@ -66,7 +90,7 @@ fn does_terminate(lex: Token, list_type: ListType) -> bool {
     }
 }
 
-pub(crate) fn parse(lexemes: Vec<Token>) -> Result<Ast, Error> {
+pub(crate) fn parse(lexemes: Vec<Token>) -> Result<Vec<Ast>, Error> {
     let mut stack_parens: Vec<ListType> = Vec::new();
     let mut stack_lists: Vec<Vec<Ast>> = Vec::new();
     let mut current_list: Vec<Ast> = Vec::new();
@@ -95,7 +119,10 @@ pub(crate) fn parse(lexemes: Vec<Token>) -> Result<Ast, Error> {
         }
     }
     if stack_parens.is_empty() {
-        Ok(current_list.pop().unwrap())
+        Ok(
+            current_list, // .pop()
+                          // .unwrap_or(Ast::Leaf(AstLeaf::Symbol("".to_owned())))
+        )
     } else {
         Err(Error::Unbalanced)
     }
