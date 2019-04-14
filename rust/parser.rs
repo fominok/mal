@@ -1,7 +1,7 @@
 use super::Error;
 use crate::lexer::Token;
-use std::mem;
 use crate::reader::{self, ReaderMacro};
+use std::mem;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum AstLeaf {
@@ -113,6 +113,11 @@ pub(crate) fn parse(lexemes: Vec<Token>) -> Result<Vec<Ast>, Error> {
                     return Err(Error::Unbalanced);
                 }
                 reader::WithMeta::process_ast(&mut child_list);
+                reader::Quote::process_ast(&mut child_list);
+                reader::QuasiQuote::process_ast(&mut child_list);
+                reader::Deref::process_ast(&mut child_list);
+                reader::Unquote::process_ast(&mut child_list);
+                reader::SpliceUnquote::process_ast(&mut child_list);
                 current_list.push(Ast::List(AstList {
                     list_type: list_type,
                     list: child_list,
@@ -122,6 +127,11 @@ pub(crate) fn parse(lexemes: Vec<Token>) -> Result<Vec<Ast>, Error> {
     }
     if stack_parens.is_empty() {
         reader::WithMeta::process_ast(&mut current_list);
+        reader::Quote::process_ast(&mut current_list);
+        reader::QuasiQuote::process_ast(&mut current_list);
+        reader::Deref::process_ast(&mut current_list);
+        reader::Unquote::process_ast(&mut current_list);
+        reader::SpliceUnquote::process_ast(&mut current_list);
         Ok(
             current_list, // .pop()
                           // .unwrap_or(Ast::Leaf(AstLeaf::Symbol("".to_owned())))

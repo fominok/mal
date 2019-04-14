@@ -8,6 +8,11 @@ pub(crate) trait ReaderMacro {
 }
 
 pub(crate) struct WithMeta;
+pub(crate) struct Quote;
+pub(crate) struct QuasiQuote;
+pub(crate) struct Deref;
+pub(crate) struct Unquote;
+pub(crate) struct SpliceUnquote;
 
 impl ReaderMacro for WithMeta {
     fn process_ast(ast: &mut Vec<Ast>) {
@@ -48,6 +53,155 @@ impl ReaderMacro for WithMeta {
     }
 }
 
+impl ReaderMacro for Quote {
+    fn process_ast(ast: &mut Vec<Ast>) {
+        let mut i = 0;
+
+        while ast.len() > 1 && i < ast.len() - 1 {
+            let quote_symbol = &ast[i];
+
+            match quote_symbol {
+                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "'" => (),
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            }
+
+            let replace = Ast::List(AstList {
+                list_type: ListType::Parens,
+                list: vec![
+                    Ast::symbol("quote".to_owned()),
+                    mem::replace(&mut ast[i + 1], Default::default()),
+                ],
+            });
+
+            mem::replace(&mut ast[i], replace);
+            ast.remove(i + 1);
+            i = 0;
+        }
+    }
+}
+
+impl ReaderMacro for QuasiQuote {
+    fn process_ast(ast: &mut Vec<Ast>) {
+        let mut i = 0;
+
+        while ast.len() > 1 && i < ast.len() - 1 {
+            let quote_symbol = &ast[i];
+
+            match quote_symbol {
+                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "`" => (),
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            }
+
+            let replace = Ast::List(AstList {
+                list_type: ListType::Parens,
+                list: vec![
+                    Ast::symbol("quasiquote".to_owned()),
+                    mem::replace(&mut ast[i + 1], Default::default()),
+                ],
+            });
+
+            mem::replace(&mut ast[i], replace);
+            ast.remove(i + 1);
+            i = 0;
+        }
+    }
+}
+
+impl ReaderMacro for Deref {
+    fn process_ast(ast: &mut Vec<Ast>) {
+        let mut i = 0;
+
+        while ast.len() > 1 && i < ast.len() - 1 {
+            let quote_symbol = &ast[i];
+
+            match quote_symbol {
+                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "@" => (),
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            }
+
+            let replace = Ast::List(AstList {
+                list_type: ListType::Parens,
+                list: vec![
+                    Ast::symbol("deref".to_owned()),
+                    mem::replace(&mut ast[i + 1], Default::default()),
+                ],
+            });
+
+            mem::replace(&mut ast[i], replace);
+            ast.remove(i + 1);
+            i = 0;
+        }
+    }
+}
+
+impl ReaderMacro for Unquote {
+    fn process_ast(ast: &mut Vec<Ast>) {
+        let mut i = 0;
+
+        while ast.len() > 1 && i < ast.len() - 1 {
+            let quote_symbol = &ast[i];
+
+            match quote_symbol {
+                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "~" => (),
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            }
+
+            let replace = Ast::List(AstList {
+                list_type: ListType::Parens,
+                list: vec![
+                    Ast::symbol("unquote".to_owned()),
+                    mem::replace(&mut ast[i + 1], Default::default()),
+                ],
+            });
+
+            mem::replace(&mut ast[i], replace);
+            ast.remove(i + 1);
+            i = 0;
+        }
+    }
+}
+impl ReaderMacro for SpliceUnquote {
+    fn process_ast(ast: &mut Vec<Ast>) {
+        let mut i = 0;
+
+        while ast.len() > 1 && i < ast.len() - 1 {
+            let quote_symbol = &ast[i];
+
+            match quote_symbol {
+                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "~@" => (),
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            }
+
+            let replace = Ast::List(AstList {
+                list_type: ListType::Parens,
+                list: vec![
+                    Ast::symbol("splice-unquote".to_owned()),
+                    mem::replace(&mut ast[i + 1], Default::default()),
+                ],
+            });
+
+            mem::replace(&mut ast[i], replace);
+            ast.remove(i + 1);
+            i = 0;
+        }
+    }
+}
+
 fn reader_macros(mut ast_top: Vec<Ast>) -> Result<Ast, Error> {
     Ok(ast_top.pop().unwrap())
 }
@@ -55,7 +209,6 @@ fn reader_macros(mut ast_top: Vec<Ast>) -> Result<Ast, Error> {
 pub(crate) fn read(s: String) -> Result<Ast, Error> {
     let lex = Lexer::new();
     let tokens = lex.tokenize(&s).map_err(|_| Error::EOF)?;
-    println!("{:?}", tokens);
     let ast_top: Vec<Ast> = parse(tokens)?;
     if ast_top.is_empty() {
         Ok(Default::default())
@@ -72,7 +225,7 @@ mod test {
     fn macro_with_meta() {
         let lex = Lexer::new();
         let tokens = lex
-            .tokenize("^{yolo swag} (+ 1 3 ^{300 bucks} [420  ^{top kek} (+ 1 322)] 3 7) ")
+            .tokenize("^{yolo swag} (+ '1 3 ^{300 bucks} [420  ^{top kek} (+ 1 322)] 3 7) ")
             .unwrap();
         let mut ast_top: Vec<Ast> = parse(tokens).unwrap();
         WithMeta::process_ast(&mut ast_top);
@@ -82,7 +235,7 @@ mod test {
                 Ast::symbol("with-meta".to_owned()),
                 Ast::parens(vec![
                     Ast::symbol("+".to_owned()),
-                    Ast::int(1),
+                    Ast::parens(vec![Ast::symbol("quote".to_owned()), Ast::int(1),]),
                     Ast::int(3),
                     Ast::parens(vec![
                         Ast::symbol("with-meta".to_owned()),

@@ -210,20 +210,20 @@ impl Lexer {
 
     fn trans_symbol(&mut self, c: char) -> Result<(), Error> {
         match c {
-           x if is_whitespace(x) => Ok(self.end_token()?),
-           ';' => Ok(self.end_token_trans(State::Comment)?),
-           ',' => Ok(self.end_token()?),
-           '@' => Ok(self.end_token_push(Token::Symbol("@".to_owned()))?),
-           '`' => Ok(self.end_token_push(Token::Symbol("`".to_owned()))?),
-           '~' => Ok(self.end_token_push(Token::Symbol("~".to_owned()))?),
-           '(' => Ok(self.end_token_push(Token::LeftParen)?),
-           ')' => Ok(self.end_token_push(Token::RightParen)?),
-           '[' => Ok(self.end_token_push(Token::LeftBracket)?),
-           ']' => Ok(self.end_token_push(Token::RightBracket)?),
-           '{' => Ok(self.end_token_push(Token::LeftBrace)?),
-           '}' => Ok(self.end_token_push(Token::RightBrace)?),
+            x if is_whitespace(x) => Ok(self.end_token()?),
+            ';' => Ok(self.end_token_trans(State::Comment)?),
+            ',' => Ok(self.end_token()?),
+            '@' => Ok(self.end_token_push(Token::Symbol("@".to_owned()))?),
+            '`' => Ok(self.end_token_push(Token::Symbol("`".to_owned()))?),
+            '~' => Ok(self.end_token_push(Token::Symbol("~".to_owned()))?),
+            '(' => Ok(self.end_token_push(Token::LeftParen)?),
+            ')' => Ok(self.end_token_push(Token::RightParen)?),
+            '[' => Ok(self.end_token_push(Token::LeftBracket)?),
+            ']' => Ok(self.end_token_push(Token::RightBracket)?),
+            '{' => Ok(self.end_token_push(Token::LeftBrace)?),
+            '}' => Ok(self.end_token_push(Token::RightBrace)?),
             c if c != '"' => Ok(self.push_buffer(c)),
-            _ => trans_err!(c, self.buffer, State::Symbol)
+            _ => trans_err!(c, self.buffer, State::Symbol),
         }
     }
 
@@ -243,7 +243,7 @@ impl Lexer {
             _ => {
                 self.end_token()?;
                 self.process_char(c)
-            },
+            }
         }
     }
 
