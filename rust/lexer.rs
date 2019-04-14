@@ -16,6 +16,10 @@ macro_rules! match_terminated {
            x if is_whitespace(x) => Ok($tokenizer.end_token()?),
            ';' => Ok($tokenizer.end_token_trans(State::Comment)?),
            ',' => Ok($tokenizer.end_token()?),
+           '@' => Ok($tokenizer.end_token_push(Token::Symbol("@".to_owned()))?),
+           '\'' => Ok($tokenizer.end_token_push(Token::Symbol("'".to_owned()))?),
+           '`' => Ok($tokenizer.end_token_push(Token::Symbol("`".to_owned()))?),
+           '~' => Ok($tokenizer.end_token_push(Token::Symbol("~".to_owned()))?),
            '(' => Ok($tokenizer.end_token_push(Token::LeftParen)?),
            ')' => Ok($tokenizer.end_token_push(Token::RightParen)?),
            '[' => Ok($tokenizer.end_token_push(Token::LeftBracket)?),
@@ -39,6 +43,7 @@ enum State {
     StringClose,
     Symbol,
     Comment,
+    Tilda,
 }
 
 #[derive(Debug)]
@@ -97,6 +102,7 @@ impl Lexer {
             State::Float => Ok(Token::Float(b.parse().expect(EXPECT_NUM))),
             State::StringClose => Ok(Token::String(b)),
             State::Symbol => Ok(Token::Symbol(b)),
+            State::Tilda => Ok(Token::Symbol(b)),
             _ => Err(Error::TokenTerminationError(format!(
                 "Non terminating state: {:?}",
                 self.state
@@ -133,6 +139,10 @@ impl Lexer {
         match c {
             c if is_whitespace(c) => Ok(()),
             ';' => Ok(self.trans_ignore(State::Comment)),
+            '\'' => Ok(self.push_token(Token::Symbol("'".to_owned()))),
+            '`' => Ok(self.push_token(Token::Symbol("`".to_owned()))),
+            '@' => Ok(self.push_token(Token::Symbol("@".to_owned()))),
+            '~' => Ok(self.trans(c, State::Tilda)),
             '(' => Ok(self.push_token(Token::LeftParen)),
             ')' => Ok(self.push_token(Token::RightParen)),
             '[' => Ok(self.push_token(Token::LeftBracket)),
@@ -199,7 +209,19 @@ impl Lexer {
     }
 
     fn trans_symbol(&mut self, c: char) -> Result<(), Error> {
-        match_terminated! {self, c,
+        match c {
+           x if is_whitespace(x) => Ok(self.end_token()?),
+           ';' => Ok(self.end_token_trans(State::Comment)?),
+           ',' => Ok(self.end_token()?),
+           '@' => Ok(self.end_token_push(Token::Symbol("@".to_owned()))?),
+           '`' => Ok(self.end_token_push(Token::Symbol("`".to_owned()))?),
+           '~' => Ok(self.end_token_push(Token::Symbol("~".to_owned()))?),
+           '(' => Ok(self.end_token_push(Token::LeftParen)?),
+           ')' => Ok(self.end_token_push(Token::RightParen)?),
+           '[' => Ok(self.end_token_push(Token::LeftBracket)?),
+           ']' => Ok(self.end_token_push(Token::RightBracket)?),
+           '{' => Ok(self.end_token_push(Token::LeftBrace)?),
+           '}' => Ok(self.end_token_push(Token::RightBrace)?),
             c if c != '"' => Ok(self.push_buffer(c)),
             _ => trans_err!(c, self.buffer, State::Symbol)
         }
@@ -210,6 +232,19 @@ impl Lexer {
             self.trans_ignore(State::Init);
         }
         Ok(())
+    }
+
+    fn trans_tilda(&mut self, c: char) -> Result<(), Error> {
+        match c {
+            '@' => {
+                self.push_buffer(c);
+                self.end_token()
+            }
+            _ => {
+                self.end_token()?;
+                self.process_char(c)
+            },
+        }
     }
 
     fn process_char(&mut self, c: char) -> Result<(), Error> {
@@ -224,6 +259,7 @@ impl Lexer {
             State::Escape => self.trans_escape(c),
             State::StringClose => self.trans_string_close(c),
             State::Symbol => self.trans_symbol(c),
+            State::Tilda => self.trans_tilda(c),
         }
     }
 
@@ -383,6 +419,48 @@ mod test {
                 Token::Int(1),
                 Token::Int(2),
                 Token::Int(3),
+            ]
+        );
+    }
+
+    #[test]
+    fn reader_special() {
+        let t = Lexer::new();
+        let tokens = t.tokenize("`w ~@s ~s@`(+ 1 ~@(2 3))").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Symbol("`".to_owned()),
+                Token::Symbol("w".to_owned()),
+                Token::Symbol("~@".to_owned()),
+                Token::Symbol("s".to_owned()),
+                Token::Symbol("~".to_owned()),
+                Token::Symbol("s".to_owned()),
+                Token::Symbol("@".to_owned()),
+                Token::Symbol("`".to_owned()),
+                Token::LeftParen,
+                Token::Symbol("+".to_owned()),
+                Token::Int(1),
+                Token::Symbol("~@".to_owned()),
+                Token::LeftParen,
+                Token::Int(2),
+                Token::Int(3),
+                Token::RightParen,
+                Token::RightParen,
+            ]
+        );
+    }
+    #[test]
+    fn reader_special_quoute() {
+        let t = Lexer::new();
+        let tokens = t.tokenize("'ss'ss@ss").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Symbol("'".to_owned()),
+                Token::Symbol("ss'ss".to_owned()),
+                Token::Symbol("@".to_owned()),
+                Token::Symbol("ss".to_owned()),
             ]
         );
     }

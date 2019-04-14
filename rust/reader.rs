@@ -55,6 +55,7 @@ fn reader_macros(mut ast_top: Vec<Ast>) -> Result<Ast, Error> {
 pub(crate) fn read(s: String) -> Result<Ast, Error> {
     let lex = Lexer::new();
     let tokens = lex.tokenize(&s).map_err(|_| Error::EOF)?;
+    println!("{:?}", tokens);
     let ast_top: Vec<Ast> = parse(tokens)?;
     if ast_top.is_empty() {
         Ok(Default::default())
