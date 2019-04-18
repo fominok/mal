@@ -4,7 +4,24 @@ use crate::parser::{parse, Ast, AstLeaf, AstList, ListType};
 use std::mem;
 
 pub(crate) trait ReaderMacro {
-    fn process_ast(ast: &mut Vec<Ast>);
+    const WINDOW: usize;
+    fn process_ast_slice(ast: &mut [Ast]) -> bool;
+
+    fn process_ast(ast: &mut Vec<Ast>) {
+        let mut i = 0;
+
+        while ast.len() >= Self::WINDOW && i <= ast.len() - Self::WINDOW {
+            let changed = Self::process_ast_slice(&mut ast[i..i + Self::WINDOW]);
+            if changed {
+                for _ in 0..Self::WINDOW - 1 {
+                    ast.remove(i + 1);
+                }
+                i = 0;
+            } else {
+                i += 1;
+            }
+        }
+    }
 }
 
 pub(crate) struct WithMeta;
@@ -15,190 +32,91 @@ pub(crate) struct Unquote;
 pub(crate) struct SpliceUnquote;
 
 impl ReaderMacro for WithMeta {
-    fn process_ast(ast: &mut Vec<Ast>) {
-        let mut i = 0;
+    const WINDOW: usize = 3;
 
-        while ast.len() > 2 && i < ast.len() - 2 {
-            let meta_symbol = &ast[i];
-            let meta_info = &ast[i + 1];
+    fn process_ast_slice(ast: &mut [Ast]) -> bool {
+        let meta_symbol = &ast[0];
+        let meta_info = &ast[1];
 
-            match (meta_symbol, meta_info) {
-                (
-                    Ast::Leaf(AstLeaf::Symbol(ref meta_char)),
-                    Ast::List(AstList {
-                        list_type: ListType::Braces,
-                        list: _,
-                    }),
-                ) if meta_char == "^" => (),
-                _ => {
-                    i += 1;
-                    continue;
-                }
+        match (meta_symbol, meta_info) {
+            (
+                Ast::Leaf(AstLeaf::Symbol(ref meta_char)),
+                Ast::List(AstList {
+                    list_type: ListType::Braces,
+                    list: _,
+                }),
+            ) if meta_char == "^" => {
+                let replace = Ast::List(AstList {
+                    list_type: ListType::Parens,
+                    list: vec![
+                        Ast::symbol("with-meta".to_owned()),
+                        mem::replace(&mut ast[2], Default::default()),
+                        mem::replace(&mut ast[1], Default::default()),
+                    ],
+                });
+                mem::replace(&mut ast[0], replace);
+                true
             }
+            _ => false,
+        }
+    }
+}
 
+fn simple_sub(ast: &mut [Ast], matcher: &str, replacement: &str) -> bool {
+    let reader_symbol = &ast[0];
+
+    match reader_symbol {
+        Ast::Leaf(AstLeaf::Symbol(ref reader_str)) if reader_str == matcher => {
             let replace = Ast::List(AstList {
                 list_type: ListType::Parens,
                 list: vec![
-                    Ast::symbol("with-meta".to_owned()),
-                    mem::replace(&mut ast[i + 2], Default::default()),
-                    mem::replace(&mut ast[i + 1], Default::default()),
+                    Ast::symbol(replacement.to_owned()),
+                    mem::replace(&mut ast[1], Default::default()),
                 ],
             });
-
-            mem::replace(&mut ast[i], replace);
-            ast.remove(i + 1);
-            ast.remove(i + 1);
-            i = 0;
+            mem::replace(&mut ast[0], replace);
+            true
         }
+        _ => false,
     }
 }
 
 impl ReaderMacro for Quote {
-    fn process_ast(ast: &mut Vec<Ast>) {
-        let mut i = 0;
+    const WINDOW: usize = 2;
 
-        while ast.len() > 1 && i < ast.len() - 1 {
-            let quote_symbol = &ast[i];
-
-            match quote_symbol {
-                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "'" => (),
-                _ => {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            let replace = Ast::List(AstList {
-                list_type: ListType::Parens,
-                list: vec![
-                    Ast::symbol("quote".to_owned()),
-                    mem::replace(&mut ast[i + 1], Default::default()),
-                ],
-            });
-
-            mem::replace(&mut ast[i], replace);
-            ast.remove(i + 1);
-            i = 0;
-        }
+    fn process_ast_slice(ast: &mut [Ast]) -> bool {
+        simple_sub(ast, "'", "quote")
     }
 }
 
 impl ReaderMacro for QuasiQuote {
-    fn process_ast(ast: &mut Vec<Ast>) {
-        let mut i = 0;
+    const WINDOW: usize = 2;
 
-        while ast.len() > 1 && i < ast.len() - 1 {
-            let quote_symbol = &ast[i];
-
-            match quote_symbol {
-                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "`" => (),
-                _ => {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            let replace = Ast::List(AstList {
-                list_type: ListType::Parens,
-                list: vec![
-                    Ast::symbol("quasiquote".to_owned()),
-                    mem::replace(&mut ast[i + 1], Default::default()),
-                ],
-            });
-
-            mem::replace(&mut ast[i], replace);
-            ast.remove(i + 1);
-            i = 0;
-        }
+    fn process_ast_slice(ast: &mut [Ast]) -> bool {
+        simple_sub(ast, "`", "quasiquote")
     }
 }
 
 impl ReaderMacro for Deref {
-    fn process_ast(ast: &mut Vec<Ast>) {
-        let mut i = 0;
+    const WINDOW: usize = 2;
 
-        while ast.len() > 1 && i < ast.len() - 1 {
-            let quote_symbol = &ast[i];
-
-            match quote_symbol {
-                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "@" => (),
-                _ => {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            let replace = Ast::List(AstList {
-                list_type: ListType::Parens,
-                list: vec![
-                    Ast::symbol("deref".to_owned()),
-                    mem::replace(&mut ast[i + 1], Default::default()),
-                ],
-            });
-
-            mem::replace(&mut ast[i], replace);
-            ast.remove(i + 1);
-            i = 0;
-        }
+    fn process_ast_slice(ast: &mut [Ast]) -> bool {
+        simple_sub(ast, "@", "deref")
     }
 }
 
 impl ReaderMacro for Unquote {
-    fn process_ast(ast: &mut Vec<Ast>) {
-        let mut i = 0;
+    const WINDOW: usize = 2;
 
-        while ast.len() > 1 && i < ast.len() - 1 {
-            let quote_symbol = &ast[i];
-
-            match quote_symbol {
-                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "~" => (),
-                _ => {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            let replace = Ast::List(AstList {
-                list_type: ListType::Parens,
-                list: vec![
-                    Ast::symbol("unquote".to_owned()),
-                    mem::replace(&mut ast[i + 1], Default::default()),
-                ],
-            });
-
-            mem::replace(&mut ast[i], replace);
-            ast.remove(i + 1);
-            i = 0;
-        }
+    fn process_ast_slice(ast: &mut [Ast]) -> bool {
+        simple_sub(ast, "~", "unquote")
     }
 }
 impl ReaderMacro for SpliceUnquote {
-    fn process_ast(ast: &mut Vec<Ast>) {
-        let mut i = 0;
+    const WINDOW: usize = 2;
 
-        while ast.len() > 1 && i < ast.len() - 1 {
-            let quote_symbol = &ast[i];
-
-            match quote_symbol {
-                Ast::Leaf(AstLeaf::Symbol(ref quote_char)) if quote_char == "~@" => (),
-                _ => {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            let replace = Ast::List(AstList {
-                list_type: ListType::Parens,
-                list: vec![
-                    Ast::symbol("splice-unquote".to_owned()),
-                    mem::replace(&mut ast[i + 1], Default::default()),
-                ],
-            });
-
-            mem::replace(&mut ast[i], replace);
-            ast.remove(i + 1);
-            i = 0;
-        }
+    fn process_ast_slice(ast: &mut [Ast]) -> bool {
+        simple_sub(ast, "~@", "splice-unquote")
     }
 }
 
