@@ -1,9 +1,9 @@
 mod formatter;
 mod lexer;
-mod parser;
 mod reader;
+mod reader_macros;
 
-use crate::parser::Ast;
+use crate::reader::Ast;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 

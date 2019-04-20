@@ -10,7 +10,7 @@ mal: stepA_mal
 	cp target/release/$* $@
 
 STEP0_DEPS = step0_repl.rs
-STEP1_DEPS = step1_read_print.rs lexer.rs parser.rs reader.rs formatter.rs
+STEP1_DEPS = step1_read_print.rs lexer.rs reader_macros.rs reader.rs formatter.rs
 
 step0_repl: $(STEP0_DEPS)
 step1_read_print: $(STEP1_DEPS)

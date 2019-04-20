@@ -1,137 +1,142 @@
 use super::Error;
 use crate::lexer::Lexer;
-use crate::parser::{parse, Ast, AstLeaf, AstList, ListType};
+use crate::lexer::Token;
+use crate::reader_macros;
 use std::mem;
 
-pub(crate) trait ReaderMacro {
-    const WINDOW: usize;
-    fn process_ast_slice(ast: &mut [Ast]) -> bool;
+#[derive(Debug, PartialEq)]
+pub(crate) enum AstLeaf {
+    Symbol(String),
+    Int(i32),
+    Float(f32),
+    String(String),
+}
 
-    fn process_ast(ast: &mut Vec<Ast>) {
-        let mut i = 0;
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub(crate) enum ListType {
+    Parens,
+    Brackets,
+    Braces,
+}
 
-        while ast.len() >= Self::WINDOW && i <= ast.len() - Self::WINDOW {
-            let changed = Self::process_ast_slice(&mut ast[i..i + Self::WINDOW]);
-            if changed {
-                for _ in 0..Self::WINDOW - 1 {
-                    ast.remove(i + 1);
-                }
-                i = 0;
-            } else {
-                i += 1;
-            }
-        }
+#[derive(Debug, PartialEq)]
+pub(crate) struct AstList {
+    pub(crate) list_type: ListType,
+    pub(crate) list: Vec<Ast>,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum Ast {
+    List(AstList),
+    Leaf(AstLeaf),
+}
+
+impl Default for Ast {
+    fn default() -> Self {
+        Ast::Leaf(AstLeaf::Symbol("".to_owned()))
     }
 }
 
-pub(crate) struct WithMeta;
-pub(crate) struct Quote;
-pub(crate) struct QuasiQuote;
-pub(crate) struct Deref;
-pub(crate) struct Unquote;
-pub(crate) struct SpliceUnquote;
-
-impl ReaderMacro for WithMeta {
-    const WINDOW: usize = 3;
-
-    fn process_ast_slice(ast: &mut [Ast]) -> bool {
-        let meta_symbol = &ast[0];
-        let meta_info = &ast[1];
-
-        match (meta_symbol, meta_info) {
-            (
-                Ast::Leaf(AstLeaf::Symbol(ref meta_char)),
-                Ast::List(AstList {
-                    list_type: ListType::Braces,
-                    list: _,
-                }),
-            ) if meta_char == "^" => {
-                let replace = Ast::List(AstList {
-                    list_type: ListType::Parens,
-                    list: vec![
-                        Ast::symbol("with-meta".to_owned()),
-                        mem::replace(&mut ast[2], Default::default()),
-                        mem::replace(&mut ast[1], Default::default()),
-                    ],
-                });
-                mem::replace(&mut ast[0], replace);
-                true
-            }
-            _ => false,
-        }
+impl Ast {
+    pub(crate) fn symbol(s: String) -> Self {
+        Ast::Leaf(AstLeaf::Symbol(s))
+    }
+    pub(crate) fn int(i: i32) -> Self {
+        Ast::Leaf(AstLeaf::Int(i))
+    }
+    pub(crate) fn float(f: f32) -> Self {
+        Ast::Leaf(AstLeaf::Float(f))
+    }
+    pub(crate) fn string(s: String) -> Self {
+        Ast::Leaf(AstLeaf::String(s))
+    }
+    pub(crate) fn parens(sib: Vec<Self>) -> Self {
+        Ast::List(AstList {
+            list_type: ListType::Parens,
+            list: sib,
+        })
+    }
+    pub(crate) fn braces(sib: Vec<Self>) -> Self {
+        Ast::List(AstList {
+            list_type: ListType::Braces,
+            list: sib,
+        })
+    }
+    pub(crate) fn brackets(sib: Vec<Self>) -> Self {
+        Ast::List(AstList {
+            list_type: ListType::Brackets,
+            list: sib,
+        })
     }
 }
 
-fn simple_sub(ast: &mut [Ast], matcher: &str, replacement: &str) -> bool {
-    let reader_symbol = &ast[0];
+fn get_list_type(lex: Token) -> Option<ListType> {
+    use ListType::*;
+    use Token::*;
+    match lex {
+        LeftParen => Some(Parens),
+        LeftBrace => Some(Braces),
+        LeftBracket => Some(Brackets),
+        _ => None,
+    }
+}
 
-    match reader_symbol {
-        Ast::Leaf(AstLeaf::Symbol(ref reader_str)) if reader_str == matcher => {
-            let replace = Ast::List(AstList {
-                list_type: ListType::Parens,
-                list: vec![
-                    Ast::symbol(replacement.to_owned()),
-                    mem::replace(&mut ast[1], Default::default()),
-                ],
-            });
-            mem::replace(&mut ast[0], replace);
-            true
-        }
+fn does_terminate(lex: Token, list_type: ListType) -> bool {
+    use ListType::*;
+    use Token::*;
+    match lex {
+        RightParen => list_type == Parens,
+        RightBrace => list_type == Braces,
+        RightBracket => list_type == Brackets,
         _ => false,
     }
 }
 
-impl ReaderMacro for Quote {
-    const WINDOW: usize = 2;
-
-    fn process_ast_slice(ast: &mut [Ast]) -> bool {
-        simple_sub(ast, "'", "quote")
+pub(crate) fn parse(lexemes: Vec<Token>) -> Result<Vec<Ast>, Error> {
+    let mut stack_parens: Vec<ListType> = Vec::new();
+    let mut stack_lists: Vec<Vec<Ast>> = Vec::new();
+    let mut current_list: Vec<Ast> = Vec::new();
+    for l in lexemes.into_iter() {
+        match l {
+            Token::String(x) => current_list.push(Ast::string(x)),
+            Token::Int(x) => current_list.push(Ast::int(x)),
+            Token::Float(x) => current_list.push(Ast::float(x)),
+            Token::Symbol(x) => current_list.push(Ast::symbol(x)),
+            Token::LeftParen | Token::LeftBrace | Token::LeftBracket => {
+                stack_parens.push(get_list_type(l).expect("Trust me"));
+                stack_lists.push(mem::replace(&mut current_list, Vec::new()));
+            }
+            Token::RightParen | Token::RightBrace | Token::RightBracket => {
+                let parent_list = stack_lists.pop().unwrap();
+                let mut child_list = mem::replace(&mut current_list, parent_list);
+                let list_type = stack_parens.pop().unwrap();
+                if !(does_terminate(l, list_type)) {
+                    return Err(Error::Unbalanced);
+                }
+                reader_macros::apply(&mut child_list);
+                current_list.push(Ast::List(AstList {
+                    list_type: list_type,
+                    list: child_list,
+                }));
+            }
+        }
     }
-}
-
-impl ReaderMacro for QuasiQuote {
-    const WINDOW: usize = 2;
-
-    fn process_ast_slice(ast: &mut [Ast]) -> bool {
-        simple_sub(ast, "`", "quasiquote")
+    if stack_parens.is_empty() {
+        reader_macros::apply(&mut current_list);
+        Ok(current_list)
+    } else {
+        Err(Error::Unbalanced)
     }
-}
-
-impl ReaderMacro for Deref {
-    const WINDOW: usize = 2;
-
-    fn process_ast_slice(ast: &mut [Ast]) -> bool {
-        simple_sub(ast, "@", "deref")
-    }
-}
-
-impl ReaderMacro for Unquote {
-    const WINDOW: usize = 2;
-
-    fn process_ast_slice(ast: &mut [Ast]) -> bool {
-        simple_sub(ast, "~", "unquote")
-    }
-}
-impl ReaderMacro for SpliceUnquote {
-    const WINDOW: usize = 2;
-
-    fn process_ast_slice(ast: &mut [Ast]) -> bool {
-        simple_sub(ast, "~@", "splice-unquote")
-    }
-}
-
-fn reader_macros(mut ast_top: Vec<Ast>) -> Result<Ast, Error> {
-    Ok(ast_top.pop().unwrap())
 }
 
 pub(crate) fn read(s: String) -> Result<Ast, Error> {
     let lex = Lexer::new();
     let tokens = lex.tokenize(&s).map_err(|_| Error::EOF)?;
-    let ast_top: Vec<Ast> = parse(tokens)?;
+    let mut ast_top: Vec<Ast> = parse(tokens)?;
     if ast_top.is_empty() {
         Ok(Default::default())
     } else {
-        reader_macros(ast_top)
+        Ok(ast_top.pop().unwrap())
     }
 }
 
@@ -146,7 +151,6 @@ mod test {
             .tokenize("^{yolo swag} (+ '1 3 ^{300 bucks} [420  ^{top kek} (+ 1 322)] 3 7) ")
             .unwrap();
         let mut ast_top: Vec<Ast> = parse(tokens).unwrap();
-        WithMeta::process_ast(&mut ast_top);
         assert_eq!(
             ast_top,
             vec![Ast::parens(vec![
