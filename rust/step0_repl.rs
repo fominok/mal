@@ -10,7 +10,7 @@ fn main() {
         let readline = rl.readline("user> ");
         match readline {
             Ok(line) => {
-                rl.add_history_entry(line.as_ref());
+                rl.add_history_entry(&line);
                 println!("{}", line);
             }
             Err(ReadlineError::Interrupted) => break,
