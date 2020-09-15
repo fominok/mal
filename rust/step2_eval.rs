@@ -7,14 +7,22 @@ use crate::reader::{Ast, AstLeaf, ListType};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::collections::HashMap;
+use thiserror::Error;
 
-#[derive(Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq)]
 pub enum Error {
+    #[error("transition error `{0}`")]
     TransitionError(String),
+    #[error("token termination error `{0}`")]
     TokenTerminationError(String),
+    #[error("unbalanced parens")]
     Unbalanced,
+    #[error("eof while parsing a string")]
     EOF,
+    #[error("reader macro error")]
     ReaderMacroError,
+    #[error("eval error `{0}`")]
+    EvalError(String),
 }
 
 struct Env(HashMap<String, Box<dyn Fn(Vec<f32>) -> f32>>);
@@ -23,26 +31,30 @@ fn read(s: String) -> Result<Ast, Error> {
     reader::read(s)
 }
 
-fn ast_to_f32(ast: Ast) -> f32 {
+fn ast_to_f32(ast: Ast) -> Result<f32, Error> {
     if let Ast::Leaf(leaf) = ast {
         return match leaf {
-            AstLeaf::Float(f) => f,
-            AstLeaf::Int(i) => i as f32,
-            _ => panic!("shi"),
+            AstLeaf::Float(f) => Ok(f),
+            AstLeaf::Int(i) => Ok(i as f32),
+            _ => Err(Error::EvalError("cannot convert to f32".to_string())),
         };
     }
-    panic!("shi");
+    Err(Error::EvalError("not a leaf".to_string()))
 }
 
-fn eval(ast: &mut Ast, env: &Env) {
+fn eval(ast: &mut Ast, env: &Env) -> Result<(), Error> {
     match ast {
-        Ast::Leaf(leaf) => {}
+        Ast::Leaf(leaf) => Ok(()),
         Ast::List(list) => {
             for l in list.list.iter_mut() {
-                eval(l, env);
+                eval(l, env)?;
             }
-            if list.list_type == ListType::Parens {
-                let args = list.list.drain(1..).map(ast_to_f32).collect();
+            if list.list_type == ListType::Parens && !list.list.is_empty() {
+                let args = list
+                    .list
+                    .drain(1..)
+                    .map(ast_to_f32)
+                    .collect::<Result<_, Error>>()?;
                 let first = if let Ast::Leaf(leaf) = &list.list[0] {
                     if let AstLeaf::Symbol(sym) = leaf {
                         sym
@@ -58,6 +70,7 @@ fn eval(ast: &mut Ast, env: &Env) {
                     *ast = Ast::Leaf(AstLeaf::String(format!(r#""{}" not found"#, first)));
                 };
             }
+            Ok(())
         }
     }
 }
@@ -68,8 +81,10 @@ fn print(ast: Ast) -> String {
 
 fn repl(s: String, env: &Env) -> String {
     if let Ok(mut r) = read(s) {
-        eval(&mut r, env);
-        print(r)
+        match eval(&mut r, env) {
+            Ok(_) => print(r),
+            Err(e) => e.to_string(),
+        }
     } else {
         "unbalanced".to_owned()
     }
