@@ -73,22 +73,8 @@ fn eval(ast: &mut Ast, env: &Env) -> Result<(), Error> {
             }
             if list.list_type == ListType::Parens && !list.list.is_empty() {
                 let args = list.list.drain(1..).collect();
-                let first = if let Ast::Leaf(leaf) = &list.list[0] {
-                    if let AstLeaf::Symbol(sym) = leaf {
-                        sym
-                    } else {
-                        todo!()
-                    }
-                } else {
-                    todo!()
-                };
-                if let Some(fe) = env.env.get(first) {
-                    let f = fe.get_function()?;
-                    *ast = f(args)?;
-                } else {
-                    return Err(Error::EvalError(format!(r#"Symbol "{}" not found"#, first)));
-                    // *ast = Ast::Leaf(AstLeaf::String(format!(r#""{}" not found"#, first)));
-                };
+                let f = list.list[0].get_function()?;
+                *ast = f(args)?;
             }
             Ok(())
         }
