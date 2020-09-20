@@ -8,6 +8,7 @@ impl fmt::Display for AstLeaf {
             AstLeaf::String(x) => write!(f, "\"{}\"", x),
             AstLeaf::Int(x) => write!(f, "{}", x.to_string()),
             AstLeaf::Float(x) => write!(f, "{}", x.to_string()),
+            AstLeaf::Function(lf) => write!(f, "{:?}", lf),
         }
     }
 }

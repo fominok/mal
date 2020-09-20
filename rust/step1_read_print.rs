@@ -14,6 +14,7 @@ pub enum Error {
     Unbalanced,
     EOF,
     ReaderMacroError,
+    EvalError(String),
 }
 
 fn read(s: String) -> Result<Ast, Error> {
