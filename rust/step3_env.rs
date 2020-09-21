@@ -7,6 +7,7 @@ use crate::reader::{Ast, AstLeaf, ListType};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::collections::HashMap;
+use std::rc::Rc;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -27,16 +28,18 @@ pub enum Error {
 
 struct Env {
     env: HashMap<String, Ast>,
-    parent: Option<Box<Env>>,
+    parent: Option<Rc<Env>>,
 }
 
 impl Env {
     pub(crate) fn search(&self, symbol: &str) -> Result<Ast, Error> {
-        let value = self
-            .env
-            .get(symbol)
-            .ok_or(Error::EvalError(format!("Symbol not found: {}", symbol)))?;
-        Ok(value.clone())
+        let err = Error::EvalError(format!("Symbol not found: {}", symbol));
+
+        if let Some(value) = self.env.get(symbol) {
+            Ok(value.clone())
+        } else {
+            self.parent.clone().map(|p| p.search(symbol)).ok_or(err)?
+        }
     }
 }
 
@@ -55,7 +58,18 @@ fn ast_to_f32(ast: Ast) -> Result<f32, Error> {
     Err(Error::EvalError("not a leaf".to_string()))
 }
 
-fn eval(ast: &mut Ast, env: &Env) -> Result<(), Error> {
+fn function_call(
+    mut args: Vec<Ast>,
+    env: Rc<Env>,
+    f: Rc<dyn Fn(Vec<Ast>) -> Result<Ast, Error>>,
+) -> Result<Ast, Error> {
+    for l in args.iter_mut() {
+        eval(l, env.clone())?;
+    }
+    f(args)
+}
+
+fn eval(ast: &mut Ast, env: Rc<Env>) -> Result<(), Error> {
     match ast {
         Ast::Leaf(leaf) => {
             // resolve symbols
@@ -68,13 +82,41 @@ fn eval(ast: &mut Ast, env: &Env) -> Result<(), Error> {
             Ok(())
         }
         Ast::List(list) => {
-            for l in list.list.iter_mut() {
-                eval(l, env)?;
-            }
             if list.list_type == ListType::Parens && !list.list.is_empty() {
-                let args = list.list.drain(1..).collect();
-                let f = list.list[0].get_function()?;
-                *ast = f(args)?;
+                let mut args: Vec<Ast> = list.list.drain(1..).collect();
+                match list.list[0].get_leaf()? {
+                    AstLeaf::Symbol(s) => {
+                        if s == "let*" {
+                            let mut hm: HashMap<String, Ast> = HashMap::new();
+                            for bind in args[0].get_list()?.chunks(2) {
+                                hm.insert(bind[0].get_symbol()?, bind[1].clone());
+                            }
+                            let inner_env = Rc::new(Env {
+                                env: hm,
+                                parent: Some(env),
+                            });
+
+                            let mut inner_args: Ast =
+                                args.drain(1..).collect::<Vec<Ast>>()[0].clone();
+                            *ast = inner_args;
+                            eval(ast, inner_env)?;
+                        } else {
+                            let f_ast = env.search(s)?;
+                            let f = f_ast.get_function()?;
+                            *ast = function_call(args, env, f.clone())?;
+                        }
+                    }
+                    AstLeaf::Function(f) => {
+                        *ast = function_call(args, env, f.f.clone())?;
+                    }
+                    _ => return Err(Error::EvalError("not a function".to_owned())),
+                };
+            // let f = list.list[0].get_function()?;
+            // *ast = f(args)?;
+            } else {
+                for l in list.list.iter_mut() {
+                    eval(l, env.clone())?;
+                }
             }
             Ok(())
         }
@@ -85,7 +127,7 @@ fn print(ast: Ast) -> String {
     format!("{}", ast)
 }
 
-fn repl(s: String, env: &Env) -> String {
+fn repl(s: String, env: Rc<Env>) -> String {
     if let Ok(mut r) = read(s) {
         match eval(&mut r, env) {
             Ok(_) => print(r),
@@ -139,16 +181,16 @@ fn main() {
     // hm.insert("*".to_owned(), Box::new(|args| args[0] * args[1]));
     // hm.insert("/".to_owned(), Box::new(|args| args[0] / args[1]));
 
-    let env = Env {
+    let env = Rc::new(Env {
         env: hm,
         parent: None,
-    };
+    });
     loop {
         let readline = rl.readline("user> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(&line);
-                println!("{}", repl(line, &env));
+                println!("{}", repl(line, env.clone()));
             }
             Err(ReadlineError::Interrupted) => break,
             Err(ReadlineError::Eof) => break,

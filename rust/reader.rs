@@ -17,7 +17,7 @@ pub(crate) enum AstLeaf {
 
 #[derive(Clone)]
 pub(crate) struct LFunction {
-    f: Rc<dyn Fn(Vec<Ast>) -> Result<Ast, Error>>,
+    pub(crate) f: Rc<dyn Fn(Vec<Ast>) -> Result<Ast, Error>>,
 }
 
 impl PartialEq for LFunction {
@@ -119,6 +119,32 @@ impl Ast {
             }
         }
         Err(Error::EvalError("not a function".to_owned()))
+    }
+
+    pub(crate) fn get_leaf(&self) -> Result<&AstLeaf, Error> {
+        if let Ast::Leaf(l) = self {
+            Ok(l)
+        } else {
+            Err(Error::EvalError("not a leaf".to_owned()))
+        }
+    }
+    pub(crate) fn get_list(&self) -> Result<&Vec<Ast>, Error> {
+        if let Ast::List(l) = self {
+            if l.list_type == ListType::Parens {
+                Ok(&l.list)
+            } else {
+                Err(Error::EvalError("should be a list".to_owned()))
+            }
+        } else {
+            Err(Error::EvalError("should be a list".to_owned()))
+        }
+    }
+    pub(crate) fn get_symbol(&self) -> Result<String, Error> {
+        if let AstLeaf::Symbol(s) = self.get_leaf()? {
+            Ok(s.to_owned())
+        } else {
+            Err(Error::EvalError("not a symbol".to_owned()))
+        }
     }
 }
 
