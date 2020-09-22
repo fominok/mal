@@ -6,6 +6,7 @@ mod reader_macros;
 use crate::reader::{Ast, AstLeaf, ListType};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use thiserror::Error;
@@ -22,23 +23,26 @@ pub enum Error {
     EOF,
     #[error("reader macro error")]
     ReaderMacroError,
-    #[error("eval error `{0}`")]
+    #[error("{0}")]
     EvalError(String),
 }
 
 struct Env {
     env: HashMap<String, Ast>,
-    parent: Option<Rc<Env>>,
+    parent: Option<Rc<RefCell<Env>>>,
 }
 
 impl Env {
     pub(crate) fn search(&self, symbol: &str) -> Result<Ast, Error> {
-        let err = Error::EvalError(format!("Symbol not found: {}", symbol));
+        let err = Error::EvalError(format!("'{}' not found", symbol));
 
         if let Some(value) = self.env.get(symbol) {
             Ok(value.clone())
         } else {
-            self.parent.clone().map(|p| p.search(symbol)).ok_or(err)?
+            self.parent
+                .clone()
+                .map(|p| p.borrow().search(symbol))
+                .ok_or(err)?
         }
     }
 }
@@ -60,7 +64,7 @@ fn ast_to_f32(ast: Ast) -> Result<f32, Error> {
 
 fn function_call(
     mut args: Vec<Ast>,
-    env: Rc<Env>,
+    env: Rc<RefCell<Env>>,
     f: Rc<dyn Fn(Vec<Ast>) -> Result<Ast, Error>>,
 ) -> Result<Ast, Error> {
     for l in args.iter_mut() {
@@ -69,13 +73,13 @@ fn function_call(
     f(args)
 }
 
-fn eval(ast: &mut Ast, env: Rc<Env>) -> Result<(), Error> {
+fn eval(ast: &mut Ast, env: Rc<RefCell<Env>>) -> Result<(), Error> {
     match ast {
         Ast::Leaf(leaf) => {
             // resolve symbols
             match leaf {
                 AstLeaf::Symbol(sym) => {
-                    *ast = env.search(sym)?;
+                    *ast = env.borrow().search(sym)?;
                 }
                 _ => {}
             };
@@ -87,21 +91,30 @@ fn eval(ast: &mut Ast, env: Rc<Env>) -> Result<(), Error> {
                 match list.list[0].get_leaf()? {
                     AstLeaf::Symbol(s) => {
                         if s == "let*" {
-                            let mut hm: HashMap<String, Ast> = HashMap::new();
-                            for bind in args[0].get_list()?.chunks(2) {
-                                hm.insert(bind[0].get_symbol()?, bind[1].clone());
-                            }
-                            let inner_env = Rc::new(Env {
-                                env: hm,
+                            let inner_env = Rc::new(RefCell::new(Env {
+                                env: HashMap::new(),
                                 parent: Some(env),
-                            });
+                            }));
+                            for bind in args[0].get_any_list_mut()?.chunks_mut(2) {
+                                eval(&mut bind[1], inner_env.clone())?;
+                                inner_env
+                                    .borrow_mut()
+                                    .env
+                                    .insert(bind[0].get_symbol()?, bind[1].clone());
+                            }
 
                             let mut inner_args: Ast =
                                 args.drain(1..).collect::<Vec<Ast>>()[0].clone();
                             *ast = inner_args;
                             eval(ast, inner_env)?;
+                        } else if s == "def!" {
+                            eval(&mut args[1], env.clone())?;
+                            env.borrow_mut()
+                                .env
+                                .insert(args[0].get_symbol()?, args[1].clone());
+                            *ast = args[1].clone();
                         } else {
-                            let f_ast = env.search(s)?;
+                            let f_ast = env.borrow().search(s)?;
                             let f = f_ast.get_function()?;
                             *ast = function_call(args, env, f.clone())?;
                         }
@@ -127,7 +140,7 @@ fn print(ast: Ast) -> String {
     format!("{}", ast)
 }
 
-fn repl(s: String, env: Rc<Env>) -> String {
+fn repl(s: String, env: Rc<RefCell<Env>>) -> String {
     if let Ok(mut r) = read(s) {
         match eval(&mut r, env) {
             Ok(_) => print(r),
@@ -181,10 +194,10 @@ fn main() {
     // hm.insert("*".to_owned(), Box::new(|args| args[0] * args[1]));
     // hm.insert("/".to_owned(), Box::new(|args| args[0] / args[1]));
 
-    let env = Rc::new(Env {
+    let env = Rc::new(RefCell::new(Env {
         env: hm,
         parent: None,
-    });
+    }));
     loop {
         let readline = rl.readline("user> ");
         match readline {

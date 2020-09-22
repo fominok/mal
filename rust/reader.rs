@@ -128,13 +128,16 @@ impl Ast {
             Err(Error::EvalError("not a leaf".to_owned()))
         }
     }
-    pub(crate) fn get_list(&self) -> Result<&Vec<Ast>, Error> {
+    pub(crate) fn get_any_list(&self) -> Result<&Vec<Ast>, Error> {
         if let Ast::List(l) = self {
-            if l.list_type == ListType::Parens {
-                Ok(&l.list)
-            } else {
-                Err(Error::EvalError("should be a list".to_owned()))
-            }
+            Ok(&l.list)
+        } else {
+            Err(Error::EvalError("should be a list".to_owned()))
+        }
+    }
+    pub(crate) fn get_any_list_mut(&mut self) -> Result<&mut Vec<Ast>, Error> {
+        if let Ast::List(l) = self {
+            Ok(&mut l.list)
         } else {
             Err(Error::EvalError("should be a list".to_owned()))
         }
